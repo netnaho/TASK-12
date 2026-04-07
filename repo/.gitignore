@@ -1,0 +1,31 @@
+# ── Secrets / local config ────────────────────────────────────────────────────
+# .env contains credentials. Copy .env.example → .env and fill in real values.
+# NEVER commit .env.
+.env
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ── Test / coverage artefacts ─────────────────────────────────────────────────
+coverage/
+*.lcov
+.nyc_output/
+
+# ── Prisma client (generated) ─────────────────────────────────────────────────
+# The Prisma client is generated at build time via `prisma generate`.
+backend/node_modules/.prisma/
+
+# ── OS artefacts ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+.claude/
+CLAUDE.md
