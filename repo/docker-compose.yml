@@ -1,0 +1,111 @@
+# LeaseOps Insight & Assessment
+# ─────────────────────────────────────────────────────────────────────────────
+# Start the full stack with a single command (no manual setup required):
+#
+#   docker compose up
+#
+# Environment variables are read from .env (copy .env.example → .env to get started).
+# Migrations and seed data run automatically on first boot.
+#
+# Service URLs (after startup):
+#   Frontend  →  http://localhost:8080
+#   Backend   →  http://localhost:3000
+#   MySQL     →  localhost:3307  (host port; user: leaseops_user — see .env.example for credentials)
+#
+# Default login credentials (seeded) — login field is "username", not email:
+#   admin    /  Password123!  (SYSTEM_ADMIN)
+#   manager  /  Password123!  (LEASING_OPS_MANAGER)
+#   proctor  /  Password123!  (TEST_PROCTOR)
+#   analyst  /  Password123!  (ANALYST)
+#   agent    /  Password123!  (STANDARD_USER)
+
+services:
+
+  # ── MySQL 8.0 ───────────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: leaseops-db
+    restart: unless-stopped
+    # Allow non-SUPER users to create triggers/functions with binary logging on.
+    # Required for the audit-log immutability triggers in the init migration.
+    command: --log_bin_trust_function_creators=1
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE:      ${MYSQL_DATABASE}
+      MYSQL_USER:          ${MYSQL_USER}
+      MYSQL_PASSWORD:      ${MYSQL_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    # mysqladmin ping without credentials works in MySQL 8.0: it tests TCP
+    # connectivity and the MySQL handshake, not authentication.
+    # The backend's startup.sh adds a secondary Prisma-level readiness check.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    networks:
+      - leaseops-network
+
+  # ── Express + Prisma Backend ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: leaseops-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:       ${DATABASE_URL}
+      SESSION_SECRET:     ${SESSION_SECRET}
+      AES_ENCRYPTION_KEY: ${AES_ENCRYPTION_KEY}
+      NODE_ENV:           ${NODE_ENV}
+      PORT:               ${PORT}
+      CORS_ORIGIN:        ${CORS_ORIGIN}
+      LOG_LEVEL:          ${LOG_LEVEL}
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # /api/health/live is a lightweight liveness probe that responds as soon
+    # as the Express process is accepting connections (no DB query, instant).
+    # start_period covers the time for migrations + bcrypt seed (~60-90 s).
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    networks:
+      - leaseops-network
+
+  # ── Vue 3 Frontend (Nginx) ──────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Empty string → Axios client falls back to the '/api' relative base URL.
+        # Nginx proxies /api/ to the backend container internally.
+        # This avoids hardcoding 'localhost' and works on any host.
+        VITE_API_BASE_URL: ""
+    container_name: leaseops-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - leaseops-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  leaseops-network:
+    driver: bridge

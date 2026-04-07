@@ -1,0 +1,22 @@
+# Never send these to the Docker build context
+node_modules
+dist
+coverage
+
+# Test files are not needed in the image
+tests
+
+# Local environment overrides
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+*.log
+.DS_Store
+.idea
+.vscode
+
+# Git
+.git
+.gitignore

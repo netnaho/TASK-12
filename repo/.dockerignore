@@ -1,0 +1,14 @@
+node_modules
+*/node_modules
+dist
+*/dist
+coverage
+*/coverage
+*.log
+.git
+.gitignore
+.DS_Store
+.idea
+.vscode
+unit_tests
+API_tests

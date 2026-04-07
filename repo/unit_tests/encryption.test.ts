@@ -1,0 +1,1 @@
+../backend/tests/unit/encryption.test.ts

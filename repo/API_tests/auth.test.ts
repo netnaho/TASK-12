@@ -1,0 +1,1 @@
+../backend/tests/api/auth.test.ts

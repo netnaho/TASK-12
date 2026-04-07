@@ -1,0 +1,989 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENUMS
+// ══════════════════════════════════════════════════════════════════════════════
+
+enum RoleName {
+  SYSTEM_ADMIN
+  LEASING_OPS_MANAGER
+  TEST_PROCTOR
+  ANALYST
+  STANDARD_USER
+}
+
+enum MetricType {
+  UNIT_RENT
+  PRICE_CHANGE_PCT
+  VOLATILITY_30D
+  VACANCY_DAYS_ON_MARKET
+  LISTING_DURATION_DOM
+  SUPPLY_DEMAND_RATIO
+}
+
+enum CalcJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum TestSessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+  SNOOZED
+  DISMISSED
+}
+
+enum NotificationChannel {
+  EMAIL
+  IN_APP
+  SMS
+  FILE
+  ENTERPRISE_IM
+}
+
+enum DeliveryMode {
+  IN_APP_ONLY
+  ALSO_PACKAGE
+}
+
+enum DeliveryStatus {
+  QUEUED
+  RETRY_1
+  RETRY_2
+  RETRY_3
+  DELIVERED
+  FAILED
+  SUPPRESSED
+  MANUALLY_SENT
+}
+
+enum EquipmentStatus {
+  OPERATIONAL
+  FAULTY
+  NEEDS_REPAIR
+  UNDER_MAINTENANCE
+  DECOMMISSIONED
+  RETIRED
+  MISSING
+}
+
+enum ReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  ON_DEMAND
+}
+
+enum ReportStatus {
+  DRAFT
+  GENERATING
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+enum ExportFormat {
+  CSV
+  EXCEL
+  PDF
+}
+
+enum ExportStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+}
+
+enum SavedViewType {
+  PIVOT
+  FILTER
+  DASHBOARD
+}
+
+enum ScheduleExecutionStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PARTIAL
+}
+
+enum AuditAction {
+  // Users
+  USER_CREATED
+  USER_UPDATED
+  USER_DEACTIVATED
+  USER_ROLE_ASSIGNED
+  USER_ROLE_REMOVED
+  // Auth
+  USER_LOGGED_IN
+  USER_LOGGED_OUT
+  // Properties / Listings
+  PROPERTY_CREATED
+  PROPERTY_UPDATED
+  LISTING_CREATED
+  LISTING_UPDATED
+  LISTING_LEASED
+  LISTING_DELISTED
+  // Metrics
+  METRIC_DEF_CREATED
+  METRIC_DEF_UPDATED
+  METRIC_DEF_VERSION_CREATED
+  METRIC_DEF_VERSION_LOCKED
+  METRIC_CALC_TRIGGERED
+  METRIC_CALC_COMPLETED
+  // Test Center
+  TEST_SESSION_CREATED
+  TEST_SESSION_UPDATED
+  TEST_SESSION_CANCELLED
+  SEAT_ALLOCATION_CREATED
+  SEAT_ALLOCATION_CHANGED
+  SEAT_ALLOCATION_CANCELLED
+  ADA_SEAT_RELEASED
+  ADA_SEAT_RELEASE_REVOKED
+  // Reports
+  REPORT_CREATED
+  REPORT_PUBLISHED
+  REPORT_SHARED
+  REPORT_SHARE_REVOKED
+  REPORT_EXPORTED
+  REPORT_ARCHIVED
+  REPORT_DEFINITION_CREATED
+  REPORT_DEFINITION_UPDATED
+  REPORT_EXPORT_DOWNLOADED
+  REPORT_EXPORT_BLOCKED
+  // Saved views
+  SAVED_VIEW_CREATED
+  SAVED_VIEW_UPDATED
+  SAVED_VIEW_DELETED
+  // Schedule
+  REPORT_SCHEDULE_EXECUTED
+  // Messaging / Notifications
+  NOTIFICATION_TEMPLATE_CREATED
+  NOTIFICATION_TEMPLATE_UPDATED
+  BLACKLIST_ENTRY_ADDED
+  BLACKLIST_ENTRY_REMOVED
+  MESSAGE_DELIVERY_FAILED
+  // Settings
+  QUIET_HOURS_UPDATED
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RBAC
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Role {
+  id          String   @id @default(uuid()) @db.Char(36)
+  name        RoleName @unique
+  description String   @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid()) @db.Char(36)
+  resource    String  @db.VarChar(100)
+  action      String  @db.VarChar(50)
+  description String? @db.VarChar(255)
+
+  roles RolePermission[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Char(36)
+  permissionId String @map("permission_id") @db.Char(36)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// USERS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model User {
+  id String @id @default(uuid()) @db.Char(36)
+
+  // Authentication
+  username     String @unique @db.VarChar(100)
+  passwordHash String @map("password_hash") @db.VarChar(255)
+
+  // Encrypted sensitive field: employee ID stored as ciphertext + IV
+  // Decrypt with AES-256-CBC using AES_ENCRYPTION_KEY env var
+  employeeIdCiphertext Bytes? @map("employee_id_ciphertext") @db.MediumBlob
+  employeeIdIv         Bytes? @map("employee_id_iv") @db.VarBinary(16)
+  // SHA-256 hash of plaintext employee ID for indexed equality lookups
+  employeeIdHash String? @map("employee_id_hash") @db.VarChar(64)
+
+  // Profile
+  displayName String  @map("display_name") @db.VarChar(200)
+  email       String  @unique @db.VarChar(255)
+  phone       String? @db.VarChar(30)
+
+  // State
+  isActive      Boolean   @default(true) @map("is_active")
+  deactivatedAt DateTime? @map("deactivated_at")
+  deactivatedBy String?   @map("deactivated_by") @db.Char(36)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  roles             UserRole[]
+  appSessions       AppSession[]
+  notifications     Notification[]
+  testRegistrations TestRegistration[]
+  seatAllocations   SeatAllocation[]       @relation("allocated_to")
+  adaSeatReleases   AdaSeatRelease[]       @relation("release_approver")
+  reportShares      ReportShare[]          @relation("share_recipient")
+  sharedByMe        ReportShare[]          @relation("share_creator")
+  createdReports    Report[]               @relation("report_creator")
+  exportRequests    ExportRequest[]
+  auditLogs         AuditLog[]             @relation("audit_actor")
+  blacklistEntries  MessageBlacklist[]
+  preference        UserPreference?
+  savedViews        SavedView[]            @relation("saved_view_owner")
+
+  @@index([isActive])
+  @@index([employeeIdHash])
+  @@map("users")
+}
+
+model UserRole {
+  userId    String   @map("user_id") @db.Char(36)
+  roleId    String   @map("role_id") @db.Char(36)
+  grantedAt DateTime @default(now()) @map("granted_at")
+  grantedBy String   @map("granted_by") @db.Char(36)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// Application-level session metadata tracker.
+// NOTE: Express cookie-session data is stored in the `sessions` table managed
+//       by express-mysql-session (NOT this model). This model tracks session
+//       metadata for audit and multi-device management purposes.
+model AppSession {
+  id             String    @id @default(uuid()) @db.Char(36)
+  userId         String    @map("user_id") @db.Char(36)
+  // SHA-256 hash of express-session ID for correlation without storing raw ID
+  sessionIdHash  String    @unique @map("session_id_hash") @db.VarChar(64)
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at")
+  expiresAt      DateTime  @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  ipAddress      String?   @map("ip_address") @db.VarChar(45)
+  userAgent      String?   @map("user_agent") @db.VarChar(512)
+  revokedAt      DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("app_sessions")
+}
+
+// Per-user delivery preferences: whether to also generate offline message packages
+model UserPreference {
+  userId       String       @id @map("user_id") @db.Char(36)
+  deliveryMode DeliveryMode @default(IN_APP_ONLY) @map("delivery_mode")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROPERTY & LISTINGS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Region {
+  id        String   @id @default(uuid()) @db.Char(36)
+  name      String   @unique @db.VarChar(150)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  communities Community[]
+  testSites   TestSite[]
+
+  @@map("regions")
+}
+
+model Community {
+  id        String   @id @default(uuid()) @db.Char(36)
+  name      String   @db.VarChar(200)
+  regionId  String   @map("region_id") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  region     Region     @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  properties Property[]
+  testSites  TestSite[]
+
+  @@unique([regionId, name])
+  @@index([regionId])
+  @@map("communities")
+}
+
+model Property {
+  id           String   @id @default(uuid()) @db.Char(36)
+  communityId  String   @map("community_id") @db.Char(36)
+  name         String   @db.VarChar(255)
+  addressLine1 String   @map("address_line1") @db.VarChar(255)
+  addressLine2 String?  @map("address_line2") @db.VarChar(255)
+  city         String   @db.VarChar(100)
+  state        String   @db.VarChar(50)
+  postalCode   String   @map("postal_code") @db.VarChar(20)
+  // Stored as DECIMAL for precision; 7 decimal places ≈ 1 cm resolution
+  latitude  Decimal @db.Decimal(10, 7)
+  longitude Decimal @db.Decimal(10, 7)
+  totalUnits Int     @map("total_units")
+  isActive   Boolean @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  community    Community     @relation(fields: [communityId], references: [id], onDelete: Restrict)
+  listings     Listing[]
+  metricValues MetricValue[]
+
+  @@index([communityId])
+  @@index([isActive])
+  @@map("properties")
+}
+
+model Listing {
+  id         String    @id @default(uuid()) @db.Char(36)
+  propertyId String    @map("property_id") @db.Char(36)
+  unitNumber String    @map("unit_number") @db.VarChar(50)
+  bedrooms   Int
+  bathrooms  Decimal   @db.Decimal(3, 1)
+  sqft       Int
+  rentPrice  Decimal   @map("rent_price") @db.Decimal(10, 2)
+  listedAt   DateTime  @map("listed_at")
+  leasedAt   DateTime? @map("leased_at")
+  delistedAt DateTime? @map("delisted_at")
+  isActive   Boolean   @default(true) @map("is_active")
+  notes      String?   @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  // Composite unique: one active listing per unit at a time
+  @@unique([propertyId, unitNumber, isActive], map: "listings_active_unit_key")
+  @@index([propertyId, isActive])
+  @@index([listedAt])
+  @@index([leasedAt])
+  @@map("listings")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// METRIC DEFINITIONS (VERSIONED)
+// ══════════════════════════════════════════════════════════════════════════════
+
+model MetricDefinition {
+  id          String     @id @default(uuid()) @db.Char(36)
+  metricType  MetricType @map("metric_type")
+  name        String     @db.VarChar(200)
+  description String?    @db.Text
+  isActive    Boolean    @default(true) @map("is_active")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  versions MetricDefinitionVersion[]
+
+  @@index([metricType, isActive])
+  @@map("metric_definitions")
+}
+
+// A version is locked (isLocked=true) once referenced by any PUBLISHED report.
+// After locking, formulaJson and effectiveFrom/effectiveTo become immutable
+// at the application layer — no ORM update is issued on locked versions.
+model MetricDefinitionVersion {
+  id                 String    @id @default(uuid()) @db.Char(36)
+  metricDefinitionId String    @map("metric_definition_id") @db.Char(36)
+  versionNumber      Int       @map("version_number")
+  formulaJson        Json      @map("formula_json")
+  effectiveFrom      DateTime  @map("effective_from")
+  effectiveTo        DateTime? @map("effective_to")
+  isLocked           Boolean   @default(false) @map("is_locked")
+  lockedAt           DateTime? @map("locked_at")
+  // Which published report caused this version to lock
+  lockedByReportId String? @map("locked_by_report_id") @db.Char(36)
+  notes     String?  @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String   @map("created_by") @db.Char(36)
+
+  metricDefinition MetricDefinition       @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
+  metricValues     MetricValue[]
+  reportSnapshots  ReportMetricSnapshot[]
+  calcJobVersions  MetricCalcJobVersion[]
+
+  @@unique([metricDefinitionId, versionNumber])
+  // Optimized for "find version active at a given date" query:
+  //   WHERE metric_definition_id = ? AND effective_from <= ? ORDER BY effective_from DESC LIMIT 1
+  @@index([metricDefinitionId, effectiveFrom])
+  @@index([isLocked])
+  @@map("metric_definition_versions")
+}
+
+model MetricValue {
+  id                        String   @id @default(uuid()) @db.Char(36)
+  propertyId                String   @map("property_id") @db.Char(36)
+  metricDefinitionVersionId String   @map("metric_def_version_id") @db.Char(36)
+  value                     Decimal  @db.Decimal(18, 6)
+  calculatedAt              DateTime @map("calculated_at")
+  periodStart               DateTime @map("period_start")
+  periodEnd                 DateTime @map("period_end")
+
+  property                Property                @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  metricDefinitionVersion MetricDefinitionVersion @relation(fields: [metricDefinitionVersionId], references: [id], onDelete: Restrict)
+
+  // Optimized for time-series lookups per property+metric+period
+  @@index([propertyId, metricDefinitionVersionId, periodEnd])
+  @@index([calculatedAt])
+  @@map("metric_values")
+}
+
+model MetricCalcJob {
+  id          String        @id @default(uuid()) @db.Char(36)
+  // "cron", "manual", or userId if triggered by a user
+  triggeredBy String        @map("triggered_by") @db.VarChar(50)
+  requestedBy String?       @map("requested_by") @db.Char(36)
+  status      CalcJobStatus @default(PENDING)
+  startedAt   DateTime?     @map("started_at")
+  completedAt DateTime?     @map("completed_at")
+  errorLog    String?       @map("error_log") @db.Text
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  versions MetricCalcJobVersion[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("metric_calc_jobs")
+}
+
+// Tracks which metric definition versions were processed in each calc job
+model MetricCalcJobVersion {
+  jobId     String @map("job_id") @db.Char(36)
+  versionId String @map("version_id") @db.Char(36)
+
+  job     MetricCalcJob           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  version MetricDefinitionVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+
+  @@id([jobId, versionId])
+  @@map("metric_calc_job_versions")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TEST CENTER
+// ══════════════════════════════════════════════════════════════════════════════
+
+model TestSite {
+  id          String   @id @default(uuid()) @db.Char(36)
+  name        String   @db.VarChar(200)
+  address     String   @db.VarChar(500)
+  timezone    String   @db.VarChar(50)
+  // Optional region/community attribution — used by operational analytics for
+  // ranking sessions/registrations by region or community.
+  regionId    String?  @map("region_id") @db.Char(36)
+  communityId String?  @map("community_id") @db.Char(36)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  rooms     TestRoom[]
+  region    Region?    @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  community Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  @@index([regionId])
+  @@index([communityId])
+  @@map("test_sites")
+}
+
+model TestRoom {
+  id        String   @id @default(uuid()) @db.Char(36)
+  siteId    String   @map("site_id") @db.Char(36)
+  name      String   @db.VarChar(100)
+  capacity  Int
+  hasAda    Boolean  @default(false) @map("has_ada")
+  notes     String?  @db.VarChar(500)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  site     TestSite      @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  seats    TestSeat[]
+  sessions TestSession[]
+
+  @@unique([siteId, name])
+  @@index([siteId])
+  @@map("test_rooms")
+}
+
+// Seats are ordered for contiguous-block allocation.
+// rowIdentifier (A, B, C …) + positionInRow (1, 2, 3 …) define physical order.
+// isAccessible=true: ADA-designated seat; held for accessibility needs by default.
+// Default allocation strategy: fill non-accessible seats first in (row, position) order;
+// only assign accessible seats if explicitly requested or all standard seats are taken.
+model TestSeat {
+  id            String   @id @default(uuid()) @db.Char(36)
+  roomId        String   @map("room_id") @db.Char(36)
+  seatLabel     String   @map("seat_label") @db.VarChar(20)
+  rowIdentifier String   @map("row_identifier") @db.VarChar(10)
+  positionInRow Int      @map("position_in_row")
+  isAccessible  Boolean  @default(false) @map("is_accessible")
+  hasEquipment  Boolean  @default(true) @map("has_equipment")
+  // False if seat is taken out of service for maintenance
+  isServiceable Boolean  @default(true) @map("is_serviceable")
+  notes         String?  @db.VarChar(255)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  room            TestRoom               @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  allocations     SeatAllocation[]
+  equipmentLedger EquipmentLedgerEntry[]
+  adaReleases     AdaSeatRelease[]
+
+  @@unique([roomId, seatLabel])
+  // Optimized for contiguous-block search: ORDER BY row_identifier, position_in_row
+  @@index([roomId, rowIdentifier, positionInRow])
+  @@index([roomId, isAccessible, isServiceable])
+  @@map("test_seats")
+}
+
+model EquipmentLedgerEntry {
+  id           String          @id @default(uuid()) @db.Char(36)
+  seatId       String          @map("seat_id") @db.Char(36)
+  equipmentType String         @map("equipment_type") @db.VarChar(100)
+  serialNumber String?         @map("serial_number") @db.VarChar(100)
+  status       EquipmentStatus @default(OPERATIONAL)
+  installedAt  DateTime        @map("installed_at")
+  removedAt    DateTime?       @map("removed_at")
+  notes        String?         @db.Text
+
+  seat TestSeat @relation(fields: [seatId], references: [id], onDelete: Restrict)
+
+  @@index([seatId, status])
+  @@map("equipment_ledger_entries")
+}
+
+// Explicitly records that an ADA seat has been released for general use
+// within a specific test session. Without this record, the allocator treats
+// isAccessible=true seats as reserved.
+model AdaSeatRelease {
+  id         String   @id @default(uuid()) @db.Char(36)
+  seatId     String   @map("seat_id") @db.Char(36)
+  sessionId  String   @map("session_id") @db.Char(36)
+  releasedBy String   @map("released_by") @db.Char(36)
+  reason     String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  seat     TestSeat    @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  session  TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  approver User        @relation("release_approver", fields: [releasedBy], references: [id], onDelete: Restrict)
+
+  @@unique([seatId, sessionId])
+  @@index([sessionId])
+  @@map("ada_seat_releases")
+}
+
+// Scheduling constraint: a room cannot have overlapping sessions.
+// Overlap definition: session B overlaps A if
+//   B.scheduled_start < A.effective_end AND B.effective_end > A.scheduled_start
+// where effective_end = scheduled_end + setup_buffer_min.
+// This is enforced at the service layer before INSERT.
+model TestSession {
+  id             String            @id @default(uuid()) @db.Char(36)
+  roomId         String            @map("room_id") @db.Char(36)
+  name           String            @db.VarChar(255)
+  description    String?           @db.Text
+  scheduledStart DateTime          @map("scheduled_start")
+  scheduledEnd   DateTime          @map("scheduled_end")
+  // Buffer in minutes after scheduledEnd before room is available again (default 10)
+  setupBufferMin Int               @default(10) @map("setup_buffer_min")
+  maxCapacity     Int               @map("max_capacity")
+  // Denormalized enrolled count for fast capacity checks; kept in sync at service layer
+  currentEnrolled Int               @default(0) @map("current_enrolled")
+  status          TestSessionStatus @default(SCHEDULED)
+  createdBy      String            @map("created_by") @db.Char(36)
+  cancelledAt    DateTime?         @map("cancelled_at")
+  cancelledBy    String?           @map("cancelled_by") @db.Char(36)
+  notes          String?           @db.Text
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  room            TestRoom          @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  registrations   TestRegistration[]
+  seatAllocations SeatAllocation[]
+  adaSeatReleases AdaSeatRelease[]
+
+  // Optimized for scheduling conflict check query:
+  //   WHERE room_id = ? AND status != 'CANCELLED'
+  //     AND scheduled_start < :effectiveEnd AND :scheduledStart < (scheduled_end + buffer)
+  @@index([roomId, scheduledStart, scheduledEnd])
+  @@index([roomId, status])
+  @@index([status])
+  @@map("test_sessions")
+}
+
+model TestRegistration {
+  id           String    @id @default(uuid()) @db.Char(36)
+  sessionId    String    @map("session_id") @db.Char(36)
+  userId       String    @map("user_id") @db.Char(36)
+  registeredAt DateTime  @default(now()) @map("registered_at")
+  cancelledAt  DateTime? @map("cancelled_at")
+
+  session        TestSession    @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  seatAllocation SeatAllocation?
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@map("test_registrations")
+}
+
+model SeatAllocation {
+  id             String   @id @default(uuid()) @db.Char(36)
+  sessionId      String   @map("session_id") @db.Char(36)
+  registrationId String   @unique @map("registration_id") @db.Char(36)
+  seatId         String   @map("seat_id") @db.Char(36)
+  userId         String   @map("user_id") @db.Char(36)
+  // "auto" = system allocator; "manual" = proctor override
+  allocatedBy    String   @default("auto") @map("allocated_by") @db.VarChar(50)
+  allocatedAt    DateTime @default(now()) @map("allocated_at")
+
+  session      TestSession      @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  registration TestRegistration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  seat         TestSeat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  user         User             @relation("allocated_to", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([sessionId, seatId])
+  @@index([seatId])
+  @@index([sessionId])
+  @@map("seat_allocations")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NOTIFICATIONS & OUTBOUND MESSAGING
+// ══════════════════════════════════════════════════════════════════════════════
+
+model NotificationTemplate {
+  id         String              @id @default(uuid()) @db.Char(36)
+  slug       String              @unique @db.VarChar(100)
+  name       String              @db.VarChar(200)
+  channel    NotificationChannel
+  subjectTpl String              @map("subject_tpl") @db.VarChar(500)
+  bodyTpl    String              @map("body_tpl") @db.Text
+  isActive   Boolean             @default(true) @map("is_active")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  notifications    Notification[]
+  outboundMessages OutboundMessage[]
+
+  @@map("notification_templates")
+}
+
+// In-app inbox notifications for a user
+model Notification {
+  id             String              @id @default(uuid()) @db.Char(36)
+  userId         String              @map("user_id") @db.Char(36)
+  templateId     String?             @map("template_id") @db.Char(36)
+  title          String              @db.VarChar(300)
+  body           String              @db.Text
+  category       String              @default("general") @db.VarChar(50)
+  status         NotificationStatus  @default(UNREAD)
+  snoozedUntil   DateTime?           @map("snoozed_until")
+  readAt         DateTime?           @map("read_at")
+  isTaskReminder Boolean             @default(false) @map("is_task_reminder")
+  // Opaque reference to the entity this notification is about
+  entityType     String?             @map("entity_type") @db.VarChar(100)
+  entityId       String?             @map("entity_id") @db.VarChar(36)
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  // Inbox filter: unread/snoozed items per user (ordered by newest first)
+  @@index([userId, status, createdAt])
+  // Snooze wakeup query: WHERE status='SNOOZED' AND snoozed_until <= NOW()
+  @@index([snoozedUntil])
+  @@map("notifications")
+}
+
+// Outbound delivery queue (email, SMS, file-drop).
+// Retry schedule: RETRY_1 after 5 min, RETRY_2 after 15 min, RETRY_3 after 60 min.
+// next_retry_at is set by the retry job and used to index the next pickup.
+model OutboundMessage {
+  id              String              @id @default(uuid()) @db.Char(36)
+  templateId      String?             @map("template_id") @db.Char(36)
+  recipientUserId String?             @map("recipient_user_id") @db.Char(36)
+  recipientAddr   String              @map("recipient_addr") @db.VarChar(320)
+  channel         NotificationChannel
+  subject         String?             @db.VarChar(500)
+  renderedBody    String              @map("rendered_body") @db.Text
+  status          DeliveryStatus      @default(QUEUED)
+  retryCount      Int                 @default(0) @map("retry_count")
+  nextRetryAt     DateTime?           @map("next_retry_at")
+  deliveredAt     DateTime?           @map("delivered_at")
+  failedAt        DateTime?           @map("failed_at")
+  failureReason   String?             @map("failure_reason") @db.Text
+  // True if this message is itself a failure-alert notification (prevents alert loops)
+  isFailureAlert  Boolean             @default(false) @map("is_failure_alert")
+  // Absolute path of generated file for FILE channel
+  fileOutputPath  String?             @map("file_output_path") @db.VarChar(1000)
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  template NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  // Message retry pickup query: WHERE status IN ('QUEUED','RETRY_1','RETRY_2','RETRY_3')
+  //   AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+  @@index([status, nextRetryAt])
+  @@index([recipientUserId])
+  @@index([createdAt])
+  @@map("outbound_messages")
+}
+
+// Permanently suppressed addresses. Checked before any message is dispatched.
+model MessageBlacklist {
+  id        String              @id @default(uuid()) @db.Char(36)
+  address   String              @db.VarChar(320)
+  channel   NotificationChannel
+  userId    String?             @map("user_id") @db.Char(36)
+  reason    String?             @db.VarChar(500)
+  createdBy String?             @map("created_by") @db.Char(36)
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([address, channel])
+  @@index([channel])
+  @@map("message_blacklist")
+}
+
+// Global and per-timezone quiet hours. During quiet hours the delivery job
+// defers EMAIL/SMS messages until the end of the quiet window.
+model QuietHoursConfig {
+  id           String   @id @default(uuid()) @db.Char(36)
+  timezone     String   @db.VarChar(50)
+  quietStartHr Int      @map("quiet_start_hr") // 0-23 local hour
+  quietEndHr   Int      @map("quiet_end_hr") // 0-23 local hour
+  isGlobal     Boolean  @default(false) @map("is_global")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([timezone, isGlobal])
+  @@map("quiet_hours_config")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REPORTS & ANALYTICS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model ReportDefinition {
+  id          String          @id @default(uuid()) @db.Char(36)
+  name        String          @db.VarChar(255)
+  description String?         @db.Text
+  frequency   ReportFrequency
+  filterJson  Json?           @map("filter_json")
+  pivotConfig Json?           @map("pivot_config")
+  isActive    Boolean         @default(true) @map("is_active")
+  createdBy   String          @map("created_by") @db.Char(36)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  reports Report[]
+
+  // Scheduler query: WHERE frequency = ? AND is_active = true
+  @@index([frequency, isActive])
+  @@map("report_definitions")
+}
+
+model Report {
+  id           String       @id @default(uuid()) @db.Char(36)
+  definitionId String       @map("definition_id") @db.Char(36)
+  name         String?      @db.VarChar(255)
+  status       ReportStatus @default(DRAFT)
+  periodStart  DateTime     @map("period_start")
+  periodEnd    DateTime     @map("period_end")
+  generatedAt  DateTime?    @map("generated_at")
+  // Snapshot of the aggregated data at generation time
+  dataJson     Json?        @map("data_json")
+  errorMessage String?      @map("error_message") @db.Text
+  createdBy    String       @map("created_by") @db.Char(36)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  definition  ReportDefinition       @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  creator     User                   @relation("report_creator", fields: [createdBy], references: [id], onDelete: Restrict)
+  shares          ReportShare[]
+  metricSnapshots ReportMetricSnapshot[]
+  exports         ExportRequest[]
+
+  @@index([definitionId, createdAt])
+  @@index([status])
+  @@index([createdBy, status])
+  @@map("reports")
+}
+
+// Locks metric definition versions when a report is published.
+// Insert-only: once a snapshot row exists the report version pair is immutable.
+model ReportMetricSnapshot {
+  id                        String @id @default(uuid()) @db.Char(36)
+  reportId                  String @map("report_id") @db.Char(36)
+  metricDefinitionVersionId String @map("metric_def_version_id") @db.Char(36)
+
+  report   Report                  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  version  MetricDefinitionVersion @relation(fields: [metricDefinitionVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([reportId, metricDefinitionVersionId])
+  @@map("report_metric_snapshots")
+}
+
+model ReportShare {
+  id        String    @id @default(uuid()) @db.Char(36)
+  reportId  String    @map("report_id") @db.Char(36)
+  userId    String    @map("user_id") @db.Char(36)
+  sharedBy  String    @map("shared_by") @db.Char(36)
+  sharedAt  DateTime  @default(now()) @map("shared_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  report  Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user    User   @relation("share_recipient", fields: [userId], references: [id], onDelete: Restrict)
+  sharer  User   @relation("share_creator", fields: [sharedBy], references: [id], onDelete: Restrict)
+
+  @@unique([reportId, userId])
+  @@index([userId])
+  @@map("report_shares")
+}
+
+model ExportRequest {
+  id            String       @id @default(uuid()) @db.Char(36)
+  reportId      String       @map("report_id") @db.Char(36)
+  requestedBy   String       @map("requested_by") @db.Char(36)
+  format        ExportFormat
+  // "{displayName} | {ISO timestamp}" — embedded in every export file
+  watermarkText String?      @map("watermark_text") @db.VarChar(500)
+  filePath      String?      @map("file_path") @db.VarChar(1000)
+  status        ExportStatus @default(PENDING)
+  errorMessage  String?      @map("error_message") @db.Text
+  createdAt     DateTime     @default(now()) @map("created_at")
+  completedAt   DateTime?    @map("completed_at")
+
+  report     Report @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  requestor  User   @relation(fields: [requestedBy], references: [id], onDelete: Restrict)
+
+  @@index([requestedBy])
+  @@index([reportId])
+  @@index([status])
+  @@map("export_requests")
+}
+
+// Reusable saved filter / pivot configuration. Owned by a user, optionally
+// marked public so all authorised analytics users can use it.
+model SavedView {
+  id          String        @id @default(uuid()) @db.Char(36)
+  name        String        @db.VarChar(255)
+  description String?       @db.Text
+  viewType    SavedViewType @map("view_type")
+  ownerId     String        @map("owner_id") @db.Char(36)
+  // The actual filter / pivot config payload — opaque JSON consumed by the
+  // pivot endpoint or by the operational analytics endpoints.
+  config      Json
+  // Public views are visible to any user with reports:read permission.
+  isPublic    Boolean       @default(false) @map("is_public")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  owner User @relation("saved_view_owner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@index([viewType, isPublic])
+  @@map("saved_views")
+}
+
+// Per-execution log of the scheduled report generation jobs (DAILY/WEEKLY/MONTHLY).
+// Used by Administrators to verify the scheduler ran as expected.
+model ReportScheduleExecution {
+  id               String                  @id @default(uuid()) @db.Char(36)
+  frequency        ReportFrequency
+  status           ScheduleExecutionStatus @default(RUNNING)
+  startedAt        DateTime                @default(now()) @map("started_at")
+  completedAt      DateTime?               @map("completed_at")
+  totalDefinitions Int                     @default(0) @map("total_definitions")
+  generatedCount   Int                     @default(0) @map("generated_count")
+  failedCount      Int                     @default(0) @map("failed_count")
+  // Cron expression that triggered the run, e.g. "0 6 * * *"
+  triggeredBy      String                  @default("cron") @map("triggered_by") @db.VarChar(50)
+  errorMessage     String?                 @map("error_message") @db.Text
+
+  @@index([frequency, startedAt])
+  @@index([status])
+  @@map("report_schedule_executions")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUDIT LOG — IMMUTABLE BY DESIGN
+//
+// Application layer: expose only AuditLogRepository.create(), never update/delete.
+// Database layer: BEFORE UPDATE and BEFORE DELETE triggers raise an error if
+// any UPDATE or DELETE is attempted on this table.
+// ══════════════════════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id         BigInt      @id @default(autoincrement())
+  action     AuditAction
+  actorId    String?     @map("actor_id") @db.Char(36)
+  entityType String      @map("entity_type") @db.VarChar(100)
+  entityId   String      @map("entity_id") @db.VarChar(36)
+  beforeJson Json?       @map("before_json")
+  afterJson  Json?       @map("after_json")
+  metadata   Json?
+  ipAddress  String?     @map("ip_address") @db.VarChar(45)
+  requestId  String?     @map("request_id") @db.VarChar(36)
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  actor User? @relation("audit_actor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  // Lookup by entity (e.g., show all events for a given report)
+  @@index([entityType, entityId])
+  // Lookup by actor (e.g., show everything user X did)
+  @@index([actorId, createdAt])
+  // Lookup by action type (e.g., all METRIC_DEF_VERSION_LOCKED events)
+  @@index([action, createdAt])
+  // Time-range scans for the audit viewer
+  @@index([createdAt])
+  @@map("audit_logs")
+}
