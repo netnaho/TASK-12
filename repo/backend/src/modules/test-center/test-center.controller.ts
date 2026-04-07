@@ -210,11 +210,11 @@ export const getUtilization = asyncHandler(async (req: Request, res: Response) =
     endDate?: string;
   };
   if (roomId) {
-    const result = await testCenterService.getRoomUtilization(roomId, startDate, endDate);
+    const result = await testCenterService.getRoomUtilization(roomId, startDate ?? '', endDate ?? '');
     return res.status(200).json(success(result));
   }
   if (siteId) {
-    const result = await testCenterService.getSiteUtilization(siteId, startDate, endDate);
+    const result = await testCenterService.getSiteUtilization(siteId, startDate ?? '', endDate ?? '');
     return res.status(200).json(success(result));
   }
   throw new BadRequestError('Either roomId or siteId query parameter is required');
