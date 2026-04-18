@@ -204,6 +204,20 @@ d('Communities module (no-mock — extended)', () => {
     assertSuccess(commPut);
     expect(commPut.body.data.name).toBe(`Community-${u}-renamed`);
 
+    // 6b. GET community by id (round-trips the renamed value)
+    const commGet = await adminAgent.get(
+      `/api/v1/communities/communities/${communityId}`,
+    );
+    assertSuccess(commGet);
+    expect(commGet.body.data.id).toBe(communityId);
+    expect(commGet.body.data.name).toBe(`Community-${u}-renamed`);
+
+    // 6c. GET community by unknown id → 404
+    const commGet404 = await adminAgent.get(
+      '/api/v1/communities/communities/00000000-0000-0000-0000-000000000000',
+    );
+    assertError(commGet404, 404);
+
     // 7. Update region
     const regPut = await managerAgent
       .put(`/api/v1/communities/regions/${regionId}`)

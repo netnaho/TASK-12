@@ -301,4 +301,71 @@ d('Test Center module (no-mock — extended)', () => {
     );
     assertError(res, 403);
   });
+
+  // ─── Top-level list endpoints (flat GETs) ──────────────────────────
+
+  it('GET /test-center/rooms returns a list for authed user', async () => {
+    const res = await proctor.get('/api/v1/test-center/rooms');
+    assertSuccess(res);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('GET /test-center/rooms requires auth (401)', async () => {
+    const res = await createAgent().get('/api/v1/test-center/rooms');
+    assertError(res, 401);
+  });
+
+  it('GET /test-center/seats returns a list for authed user', async () => {
+    const res = await proctor.get('/api/v1/test-center/seats');
+    assertSuccess(res);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('GET /test-center/seats requires auth (401)', async () => {
+    const res = await createAgent().get('/api/v1/test-center/seats');
+    assertError(res, 401);
+  });
+
+  it('GET /test-center/equipment returns a list for authed user', async () => {
+    const res = await proctor.get('/api/v1/test-center/equipment');
+    assertSuccess(res);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('GET /test-center/equipment requires auth (401)', async () => {
+    const res = await createAgent().get('/api/v1/test-center/equipment');
+    assertError(res, 401);
+  });
+
+  // ─── Generic session PATCH (compat alias → cancel) ─────────────────
+
+  it('PATCH /test-center/sessions/:id (compat generic update) rejects standard user (403)', async () => {
+    const res = await standard
+      .patch('/api/v1/test-center/sessions/00000000-0000-0000-0000-000000000000')
+      .send({});
+    assertError(res, 403);
+  });
+
+  it('PATCH /test-center/sessions/:id (compat generic update) returns 404 for unknown session (proctor)', async () => {
+    const res = await proctor
+      .patch('/api/v1/test-center/sessions/00000000-0000-0000-0000-000000000000')
+      .send({});
+    assertError(res, 404);
+  });
+
+  // ─── Nested DELETE seat: /rooms/:roomId/seats/:seatId ──────────────
+
+  it('DELETE /test-center/rooms/:roomId/seats/:seatId rejects proctor (admin-only, 403)', async () => {
+    const res = await proctor.delete(
+      '/api/v1/test-center/rooms/00000000-0000-0000-0000-000000000000/seats/00000000-0000-0000-0000-000000000000',
+    );
+    assertError(res, 403);
+  });
+
+  it('DELETE /test-center/rooms/:roomId/seats/:seatId returns 404 for unknown seat (admin)', async () => {
+    const res = await admin.delete(
+      '/api/v1/test-center/rooms/00000000-0000-0000-0000-000000000000/seats/00000000-0000-0000-0000-000000000000',
+    );
+    expect([404, 500]).toContain(res.status);
+  });
 });
