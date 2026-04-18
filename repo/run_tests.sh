@@ -117,6 +117,41 @@ cleanup_test_stack() {
   $COMPOSE "${TEST_COMPOSE_ARGS[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   # E2E brings up the prod stack — tear it down too so the runner is idempotent.
   $COMPOSE "${PROD_COMPOSE_ARGS[@]}" down --remove-orphans >/dev/null 2>&1 || true
+  # Belt-and-suspenders: if a prior run under a different compose project
+  # left a container with a conflicting name around, force-remove by name.
+  # `|| true` so cleanup never fails the overall test run.
+  local stale_names=(
+    leaseops-db leaseops-backend leaseops-frontend
+    leaseops-test-db leaseops-backend-unit-test leaseops-backend-api-test
+    leaseops-backend-integration-test leaseops-backend-coverage
+    leaseops-frontend-test leaseops-e2e-test
+  )
+  for name in "${stale_names[@]}"; do
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${name}$"; then
+      docker rm -f "$name" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+# Pre-run cleanup: remove any leftover containers from a prior aborted run
+# BEFORE starting new ones, so `docker compose up` doesn't hit the
+# "container name already in use" error.
+pre_run_cleanup() {
+  local stale_names=(
+    leaseops-db leaseops-backend leaseops-frontend
+    leaseops-test-db leaseops-backend-unit-test leaseops-backend-api-test
+    leaseops-backend-integration-test leaseops-backend-coverage
+    leaseops-frontend-test leaseops-e2e-test
+  )
+  local removed=0
+  for name in "${stale_names[@]}"; do
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${name}$"; then
+      docker rm -f "$name" >/dev/null 2>&1 && removed=$((removed + 1)) || true
+    fi
+  done
+  if (( removed > 0 )); then
+    echo "==> Removed $removed leftover container(s) from a prior run"
+  fi
 }
 
 on_signal() {
@@ -128,6 +163,10 @@ on_signal() {
 
 trap cleanup_test_stack EXIT
 trap on_signal INT TERM
+
+# Remove any leftover named containers from a prior aborted run so
+# `docker compose up` doesn't hit "container name already in use".
+pre_run_cleanup
 
 # ─── Suite runners ──────────────────────────────────────────────────────────
 # Each runner prints a header, builds its image (layer-cached), runs the
