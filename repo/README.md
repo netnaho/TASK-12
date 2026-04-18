@@ -1,3 +1,5 @@
+Project Type: fullstack
+
 # LeaseOps Insight & Assessment
 
 A production-grade, full-stack property management analytics and assessment platform with offline-first leasing analytics, controlled reporting, and on-site assessment logistics. Runs from a single command — no manual setup required.
@@ -7,8 +9,10 @@ A production-grade, full-stack property management analytics and assessment plat
 ## Quick Start
 
 ```bash
-docker compose up
+docker-compose up
 ```
+
+(The hyphenated `docker-compose up` and space form `docker compose up` are both supported by Docker Compose v1 and v2 respectively.)
 
 All three services start automatically. Prisma migrations and seed data run on first boot.
 
@@ -175,10 +179,11 @@ All authenticated endpoints require a valid session cookie from `POST /api/v1/au
 
 ### Health
 
-| Method | Path              | Auth | Description              |
-|--------|-------------------|------|--------------------------|
-| GET    | `/api/health`     | No   | Liveness + readiness     |
-| GET    | `/api/health/live`| No   | Liveness only (no DB)    |
+| Method | Path               | Auth | Description              |
+|--------|--------------------|------|--------------------------|
+| GET    | `/api/health`      | No   | Liveness + readiness     |
+| GET    | `/api/health/live` | No   | Liveness only (no DB)    |
+| GET    | `/api/health/ready`| No   | Readiness only           |
 
 ### Auth — `/api/v1/auth`
 
@@ -187,18 +192,21 @@ All authenticated endpoints require a valid session cookie from `POST /api/v1/au
 | POST   | `/login`  | No   | Login; rate-limited 10 req/15 min |
 | GET    | `/me`     | Yes  | Current session user + roles      |
 | POST   | `/logout` | Yes  | Destroy session                   |
+| POST   | `/touch`  | Yes  | Session keep-alive ping (204)     |
 
-### Users — `/api/v1/users` (System Admin only)
+### Users — `/api/v1/users` (System Admin only, except self-service preferences)
 
-| Method | Path                    | Description             |
-|--------|-------------------------|-------------------------|
-| GET    | `/`                     | List users (filterable) |
-| POST   | `/`                     | Create user             |
-| GET    | `/:id`                  | Get user                |
-| PUT    | `/:id`                  | Update user             |
-| POST   | `/:id/roles`            | Assign role             |
-| DELETE | `/:id/roles/:roleName`  | Remove role             |
-| PATCH  | `/:id/deactivate`       | Deactivate user         |
+| Method | Path                    | Auth          | Description             |
+|--------|-------------------------|---------------|-------------------------|
+| GET    | `/me/preferences`       | Any authed    | Current user preferences|
+| PUT    | `/me/preferences`       | Any authed    | Update own preferences  |
+| GET    | `/`                     | Admin         | List users (filterable) |
+| POST   | `/`                     | Admin         | Create user             |
+| GET    | `/:id`                  | Admin         | Get user                |
+| PUT    | `/:id`                  | Admin         | Update user             |
+| POST   | `/:id/roles`            | Admin         | Assign role             |
+| DELETE | `/:id/roles/:roleName`  | Admin         | Remove role             |
+| PATCH  | `/:id/deactivate`       | Admin         | Deactivate user         |
 
 ### Communities — `/api/v1/communities`
 
@@ -261,7 +269,22 @@ All authenticated endpoints require a valid session cookie from `POST /api/v1/au
 | GET    | `/sessions/:id`                   | —                 | Get session              |
 | PATCH  | `/sessions/:id/cancel`            | Admin · Proctor   | Cancel session           |
 | POST   | `/sessions/:id/register`          | Any               | Register for session     |
-| DELETE | `/sessions/:id/register`          | Any               | Cancel registration      |
+| DELETE | `/sessions/:id/register`          | Any               | Cancel own registration  |
+| DELETE | `/sessions/:sessionId/registrations/:registrationId` | Any | Cancel specific registration |
+| PATCH  | `/sessions/:id` *(compat)*        | Admin · Proctor   | Compat alias → cancelSession |
+| DELETE | `/sessions/:id` *(compat)*        | Admin · Proctor   | Compat alias → cancelSession |
+| PATCH  | `/sites/:id` *(compat)*           | Admin · Proctor   | Compat alias for PUT     |
+| PATCH  | `/seats/:id` *(compat)*           | Admin · Proctor   | Compat alias for PUT     |
+| PATCH  | `/equipment/:id` *(compat)*       | Admin · Proctor   | Compat alias for PUT     |
+| GET    | `/sites/:siteId/rooms`            | —                 | Nested list (compat)     |
+| POST   | `/sites/:siteId/rooms`            | Admin · Proctor   | Nested create (compat)   |
+| PATCH  | `/sites/:siteId/rooms/:roomId`    | Admin · Proctor   | Nested update (compat)   |
+| DELETE | `/sites/:siteId/rooms/:roomId`    | Admin             | Nested delete (compat)   |
+| GET    | `/rooms/:roomId/seats`            | —                 | Nested list (compat)     |
+| POST   | `/rooms/:roomId/seats`            | Admin · Proctor   | Nested create (compat)   |
+| PATCH  | `/rooms/:roomId/seats/:seatId`    | Admin · Proctor   | Nested update (compat)   |
+| DELETE | `/rooms/:roomId/seats/:seatId`    | Admin             | Nested delete (compat)   |
+| GET    | `/utilization`                    | —                 | Flat utilization (compat; ?roomId= or ?siteId=) |
 | GET    | `/utilization/rooms/:roomId`      | —                 | Room utilization stats   |
 | GET    | `/utilization/sites/:siteId`      | —                 | Site utilization stats   |
 
@@ -279,6 +302,8 @@ All authenticated endpoints require a valid session cookie from `POST /api/v1/au
 | POST   | `/templates`          | Admin only    | Create template          |
 | GET    | `/templates/:id`      | Admin only    | Get template             |
 | PUT    | `/templates/:id`      | Admin only    | Update template          |
+| PATCH  | `/templates/:id` *(compat)*     | Admin only    | Compat alias for PUT     |
+| DELETE | `/templates/:id`      | Admin only    | Delete template          |
 | POST   | `/templates/preview`  | Admin only    | Render template preview  |
 
 ### Messaging — `/api/v1/messaging`
@@ -286,9 +311,14 @@ All authenticated endpoints require a valid session cookie from `POST /api/v1/au
 | Method | Path               | Write roles   | Description               |
 |--------|--------------------|---------------|---------------------------|
 | POST   | `/enqueue`         | Any           | Enqueue outbound message  |
+| POST   | `/messages` *(compat)* | Any           | Compat alias for enqueue  |
+| GET    | `/messages` *(compat)* | Any           | Compat alias (list)       |
+| GET    | `/messages/:id` *(compat)* | Any   | Compat alias (status)     |
+| PATCH  | `/messages/:id/delivery` *(compat)* | Any | Compat alias              |
 | GET    | `/`                | Any           | List messages             |
 | GET    | `/failures`        | Admin         | Failure alerts            |
 | GET    | `/:id`             | Any           | Message status            |
+| GET    | `/:id/package`     | Any           | Outbound-file delivery package |
 | PATCH  | `/:id/delivery`    | Any           | Update delivery status    |
 | POST   | `/blacklist`       | Admin         | Add address to blacklist  |
 | GET    | `/blacklist`       | Admin         | List blacklist            |
@@ -298,21 +328,50 @@ All authenticated endpoints require a valid session cookie from `POST /api/v1/au
 
 ### Analytics — `/api/v1/analytics`
 
-| Method | Path                          | Write roles                | Description              |
-|--------|-------------------------------|----------------------------|--------------------------|
-| GET    | `/definitions`                | —                          | List report definitions  |
-| POST   | `/definitions`                | Admin · Manager · Analyst  | Create report definition |
-| GET    | `/definitions/:id`            | —                          | Get report definition    |
-| PUT    | `/definitions/:id`            | Admin · Manager            | Update report definition |
-| POST   | `/reports/generate`           | Admin · Manager · Analyst  | Generate report          |
-| GET    | `/reports`                    | —                          | List reports             |
-| GET    | `/reports/:id`                | —                          | Get report               |
-| POST   | `/reports/:id/share`          | Admin · Manager            | Share with user          |
-| DELETE | `/reports/:id/share/:userId`  | Admin · Manager            | Revoke share             |
-| GET    | `/reports/:id/shares`         | —                          | List report shares       |
-| POST   | `/reports/:id/export`         | Admin · Manager · Analyst  | Request export           |
-| GET    | `/exports/:id/download`       | —                          | Download export file     |
-| POST   | `/pivot`                      | Admin · Manager · Analyst  | Ad-hoc pivot query       |
+Role legend for this section (matches enforcement in `analytics.routes.ts`):
+- **—** = any authenticated user
+- **Analytics roles** = `SYSTEM_ADMIN · LEASING_OPS_MANAGER · ANALYST`
+- **Manager roles**   = `SYSTEM_ADMIN · LEASING_OPS_MANAGER`
+- **Admin only**      = `SYSTEM_ADMIN`
+
+| Method | Path                          | Access                 | Description              |
+|--------|-------------------------------|------------------------|--------------------------|
+| GET    | `/definitions`                | —                      | List report definitions  |
+| POST   | `/definitions`                | Analytics roles        | Create report definition |
+| GET    | `/definitions/:id`            | —                      | Get report definition    |
+| PUT    | `/definitions/:id`            | Manager roles          | Update report definition |
+| PATCH  | `/definitions/:id` *(compat)* | Manager roles          | Compat alias for PUT     |
+| POST   | `/reports/generate`           | Analytics roles        | Generate report          |
+| POST   | `/reports` *(compat)*         | Analytics roles        | Compat alias for generate|
+| GET    | `/reports`                    | —                      | List reports             |
+| GET    | `/reports/:id`                | —                      | Get report               |
+| PATCH  | `/reports/:id/archive`        | —                      | Archive a report (any authed; service enforces ownership/admin) |
+| POST   | `/reports/:id/share`          | Manager roles          | Share with user          |
+| DELETE | `/reports/:id/share/:userId`  | Manager roles          | Revoke share             |
+| GET    | `/reports/:id/shares`         | —                      | List report shares (service filters by ownership/admin) |
+| POST   | `/reports/:id/shares` *(compat)*| Manager roles        | Compat alias for /share  |
+| DELETE | `/reports/:id/shares/:shareId` *(compat)* | Manager roles | Compat alias for revoke  |
+| POST   | `/reports/:id/export`         | Analytics roles        | Request export           |
+| GET    | `/exports/:id/download`       | —                      | Download export file (service filters by ownership) |
+| POST   | `/pivot`                      | Analytics roles        | Ad-hoc pivot query       |
+| GET    | `/operational/participation`  | Analytics roles        | Participation metrics    |
+| GET    | `/operational/attendance`     | Analytics roles        | Attendance metrics       |
+| GET    | `/operational/hour-distribution`| Analytics roles      | Hour distribution        |
+| GET    | `/operational/retention`      | Analytics roles        | Retention metrics        |
+| GET    | `/operational/staffing-gaps`  | Analytics roles        | Staffing gaps            |
+| GET    | `/operational/event-popularity`| Analytics roles       | Event popularity ranks   |
+| GET    | `/operational/rankings`       | Analytics roles        | Rankings                 |
+| GET    | `/saved-views`                | —                      | List saved views         |
+| POST   | `/saved-views`                | Analytics roles        | Create saved view        |
+| GET    | `/saved-views/:id`            | —                      | Get saved view           |
+| PUT    | `/saved-views/:id`            | —                      | Update saved view (service enforces ownership) |
+| DELETE | `/saved-views/:id`            | —                      | Delete saved view (service enforces ownership) |
+| GET    | `/schedule-executions`        | Admin only             | List schedule executions |
+| GET    | `/schedules`                  | Analytics roles        | List schedules           |
+| GET    | `/schedules/:id`              | —                      | Get schedule             |
+| POST   | `/schedules`                  | Analytics roles        | Create schedule          |
+| PATCH  | `/schedules/:id`              | Manager roles          | Update schedule          |
+| DELETE | `/schedules/:id`              | Manager roles          | Delete schedule          |
 
 ### Audit — `/api/v1/audit` (System Admin only)
 
@@ -458,25 +517,36 @@ any suspected compromise.
 
 ## Running Tests
 
+All tests execute **inside Docker containers** — no host `npm`, `npx`, `pip`, or language-runtime installs are required.
+
 ```bash
 ./run_tests.sh
 ```
 
-The script runs unit tests, then API integration tests, prints per-suite pass/fail counts, and outputs an overall coverage summary. It exits non-zero if any test fails or coverage drops below 90%.
+The script is a thin wrapper around `docker-compose` (and its v2 alias `docker compose`). It:
 
-To run individually:
+1. Builds a throwaway `test-db` MySQL container, waits for it to become healthy.
+2. Builds a `backend-test` container image with dev dependencies and runs:
+   - Backend unit tests (`tests/unit/`)
+   - Backend mocked-HTTP API tests (`tests/api/`)
+   - Backend **true no-mock API tests** (`tests/integration/`) against the real MySQL test DB
+   - Overall coverage report with `>=90%` thresholds on branches, functions, lines, and statements
+3. Builds a `frontend-test` container and runs frontend unit tests (Vitest + Vue Test Utils + jsdom).
+4. Runs the FE↔BE E2E smoke test against the full Dockerized stack (login + a protected workflow).
+
+The runner exits non-zero if any suite fails or coverage drops below 90%. All build artefacts and coverage reports are written to the mounted `backend/coverage/` and `frontend/coverage/` volumes on completion.
+
+To run a single suite (still Docker-contained):
 
 ```bash
-cd backend
-
-# Unit tests only
-npx vitest run tests/unit --coverage
-
-# API tests only
-npx vitest run tests/api --coverage
+./run_tests.sh unit          # backend unit only
+./run_tests.sh api           # backend mocked HTTP API only
+./run_tests.sh integration   # backend no-mock API only
+./run_tests.sh frontend      # frontend unit tests only
+./run_tests.sh e2e           # FE↔BE end-to-end smoke flow only
 ```
 
-Test output is written to `backend/coverage/`. See `self_test_report.md` for detailed results.
+See `self_test_report.md` and `.tmp/remediation_implementation_report.md` for detailed results.
 
 ---
 

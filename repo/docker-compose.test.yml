@@ -1,0 +1,168 @@
+# Test-only compose profile — driven exclusively by run_tests.sh.
+# Brings up an ephemeral MySQL instance plus throwaway backend/frontend test
+# containers that run vitest inside the Docker network. Nothing on the host is
+# installed or executed.
+
+services:
+
+  # ── Test MySQL ──────────────────────────────────────────────────────────────
+  test-db:
+    image: mysql:8.0
+    container_name: leaseops-test-db
+    command: --log_bin_trust_function_creators=1 --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root
+      MYSQL_DATABASE: leaseops_test
+      MYSQL_USER: leaseops_test_user
+      MYSQL_PASSWORD: leaseops_test_pass
+    tmpfs:
+      - /var/lib/mysql           # keep DB in tmpfs so each run is pristine
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - leaseops-test-network
+
+  # ── Backend unit + mocked-API tests (no DB needed) ─────────────────────────
+  backend-unit-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: leaseops-backend-unit-test
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: mysql://leaseops_test_user:leaseops_test_pass@test-db:3306/leaseops_test
+      SESSION_SECRET: test-session-secret-that-is-long-enough
+      AES_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      LOG_LEVEL: silent
+    volumes:
+      - ./backend/coverage:/app/coverage
+    networks:
+      - leaseops-test-network
+    working_dir: /app
+    command: ["sh", "-lc", "npx vitest run --dir tests/unit --reporter=default"]
+
+  backend-api-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: leaseops-backend-api-test
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: mysql://leaseops_test_user:leaseops_test_pass@test-db:3306/leaseops_test
+      SESSION_SECRET: test-session-secret-that-is-long-enough
+      AES_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      LOG_LEVEL: silent
+    volumes:
+      - ./backend/coverage:/app/coverage
+    networks:
+      - leaseops-test-network
+    working_dir: /app
+    command: ["sh", "-lc", "npx vitest run --dir tests/api --reporter=default"]
+
+  # ── True no-mock API integration tests (real app + real MySQL) ─────────────
+  backend-integration-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: leaseops-backend-integration-test
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      # NOTE: this URL must match test-db service name + credentials
+      DATABASE_URL: mysql://leaseops_test_user:leaseops_test_pass@test-db:3306/leaseops_test
+      SESSION_SECRET: test-session-secret-that-is-long-enough-integration-variant
+      AES_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      LOG_LEVEL: silent
+      INTEGRATION_NO_MOCK: "1"
+    volumes:
+      - ./backend/coverage:/app/coverage
+    networks:
+      - leaseops-test-network
+    working_dir: /app
+    # Migrate + seed the test DB, then run the no-mock integration suite.
+    command:
+      - "sh"
+      - "-lc"
+      - |
+        set -e
+        echo "==> Waiting for DB..."
+        until nc -z test-db 3306 2>/dev/null || node -e "require('net').createConnection({host:'test-db',port:3306}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"; do sleep 1; done
+        echo "==> Applying prisma migrations"
+        npx prisma migrate deploy
+        echo "==> Seeding baseline data"
+        npx tsx prisma/seed.ts || true
+        echo "==> Running no-mock integration suite"
+        npx vitest run --dir tests/integration --reporter=default
+
+  # ── Backend coverage aggregation (all suites, with threshold enforcement) ──
+  backend-coverage:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: leaseops-backend-coverage
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: mysql://leaseops_test_user:leaseops_test_pass@test-db:3306/leaseops_test
+      SESSION_SECRET: test-session-secret-that-is-long-enough
+      AES_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      LOG_LEVEL: silent
+      INTEGRATION_NO_MOCK: "1"
+    volumes:
+      - ./backend/coverage:/app/coverage
+    networks:
+      - leaseops-test-network
+    working_dir: /app
+    command:
+      - "sh"
+      - "-lc"
+      - |
+        set -e
+        echo "==> Applying prisma migrations (if needed)"
+        npx prisma migrate deploy || true
+        echo "==> Running combined coverage"
+        npx vitest run --coverage
+
+  # ── Frontend unit tests ────────────────────────────────────────────────────
+  frontend-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+    container_name: leaseops-frontend-test
+    volumes:
+      - ./frontend/coverage:/app/coverage
+    networks:
+      - leaseops-test-network
+    working_dir: /app
+    command: ["sh", "-lc", "npx vitest run --reporter=default"]
+
+  # ── E2E smoke: runs against the *live* stack (started by run_tests.sh) ─────
+  e2e-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: leaseops-e2e-test
+    environment:
+      BACKEND_URL: http://backend:3000
+      FRONTEND_URL: http://frontend:80
+      E2E_USERNAME: admin
+      E2E_PASSWORD: Password123!
+    networks:
+      - leaseops-network   # external default compose network
+    working_dir: /app
+    command: ["sh", "-lc", "npx vitest run --dir tests/e2e --reporter=default"]
+
+networks:
+  leaseops-test-network:
+    driver: bridge
+  leaseops-network:
+    external: true
+    name: leaseops_leaseops-network

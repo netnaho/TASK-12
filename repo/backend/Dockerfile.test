@@ -1,0 +1,25 @@
+# Backend test image — includes dev dependencies (vitest, prisma CLI, supertest, etc.)
+# Used by run_tests.sh to execute unit + API + integration tests inside Docker.
+FROM node:20-alpine
+
+WORKDIR /app
+
+# curl needed for probes against the backend container during integration tests;
+# openssl is required by the Prisma engine detection on alpine.
+RUN apk add --no-cache curl openssl bash
+
+# Install all deps (dev + prod)
+COPY package*.json ./
+RUN npm ci
+
+# Generate Prisma client
+COPY prisma ./prisma
+RUN npx prisma generate
+
+# Copy the rest of the backend source (src, tests, configs)
+COPY tsconfig.json tsconfig.build.json tsconfig.test.json vitest.config.ts ./
+COPY src ./src
+COPY tests ./tests
+
+# By default run nothing — run_tests.sh drives the container via `docker compose run ...`.
+CMD ["node", "-v"]
