@@ -94,7 +94,9 @@ describe('workflow: login → role gate → logout', () => {
     expect(auth.isAuthenticated.value).toBe(false);
     expect(mockedLogout).toHaveBeenCalled();
 
-    // Now /users is protected again
+    // vue-router short-circuits push() to the current route, so move away
+    // first. (We’re still on /users from the previous assertion.)
+    await router.push('/dashboard');
     await router.push('/users');
     expect(router.currentRoute.value.name).toBe('login');
   });

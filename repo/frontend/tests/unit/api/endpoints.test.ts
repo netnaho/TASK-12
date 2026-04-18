@@ -5,13 +5,17 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const apiMock = {
-  get: vi.fn(),
-  post: vi.fn(),
-  put: vi.fn(),
-  patch: vi.fn(),
-  delete: vi.fn(),
-};
+// vi.mock is hoisted to the top of the file — any identifiers the factory
+// closes over must be declared via vi.hoisted() so they move with it.
+const { apiMock } = vi.hoisted(() => ({
+  apiMock: {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
 
 // Mock the default-export axios client used by every wrapper.
 vi.mock('@/api/client', () => ({ default: apiMock }));

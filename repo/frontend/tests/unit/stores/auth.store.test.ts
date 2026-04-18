@@ -72,7 +72,9 @@ describe('stores/auth.store', () => {
     await store.login('admin', 'x');
     expect(store.isAuthenticated).toBe(true);
 
-    await store.logout();
+    // The real store re-throws after clearing (try/finally), so logout rejects.
+    // We still require user to be cleared deterministically either way.
+    await expect(store.logout()).rejects.toThrow(/offline/);
     expect(store.user).toBeNull();
     expect(store.isAuthenticated).toBe(false);
   });

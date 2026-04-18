@@ -10,7 +10,7 @@ RUN apk add --no-cache curl openssl bash
 
 # Install all deps (dev + prod)
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 # Generate Prisma client
 COPY prisma ./prisma

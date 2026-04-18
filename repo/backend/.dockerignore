@@ -3,8 +3,8 @@ node_modules
 dist
 coverage
 
-# Test files are not needed in the image
-tests
+# Note: tests/ is intentionally NOT excluded so Dockerfile.test can COPY it.
+# The production Dockerfile never COPYs tests, so this adds no bloat there.
 
 # Local environment overrides
 .env

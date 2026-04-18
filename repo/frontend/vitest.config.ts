@@ -8,6 +8,12 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
     },
+    // Force `.ts` and `.vue` to win over any stale `.js` sibling files left
+    // in the source tree by earlier builds. Without this, vite's default
+    // extension order resolves `@/stores/auth.store` to `auth.store.js`
+    // (which lacks newer code paths like normalizeUser) instead of the
+    // `.ts` source of truth.
+    extensions: ['.ts', '.tsx', '.vue', '.mjs', '.js', '.jsx', '.json'],
   },
   test: {
     globals: true,

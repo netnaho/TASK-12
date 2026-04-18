@@ -31,9 +31,8 @@ describe('components/PageHeader.vue', () => {
 
   it('omits action wrapper when no actions slot is given', () => {
     const w = mount(PageHeader, { props: { title: 't' } });
-    // Only the inner left div should exist; no trailing wrapper for actions
-    const innerDivs = w.findAll('div > div');
-    // Expect exactly one container for title+description (no actions wrapper)
-    expect(innerDivs.length).toBe(1);
+    // The actions wrapper carries "shrink-0" class and is rendered with v-if.
+    // When no slot is provided, no element carries that class.
+    expect(w.find('.shrink-0').exists()).toBe(false);
   });
 });
