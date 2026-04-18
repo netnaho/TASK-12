@@ -25,7 +25,10 @@ const SCRIPT_AVAILABLE = existsSync(SCRIPT_PATH);
 const d = SCRIPT_AVAILABLE ? describe : describe.skip;
 
 d('run_tests.sh static contract', () => {
-  const src = readFileSync(SCRIPT_PATH, 'utf-8');
+  // Only read the file when it actually exists — module body code in vitest
+  // is evaluated even inside a describe.skip block, so a guarded read is
+  // required.
+  const src = SCRIPT_AVAILABLE ? readFileSync(SCRIPT_PATH, 'utf-8') : '';
 
   it('exists at repo root', () => {
     expect(SCRIPT_AVAILABLE).toBe(true);

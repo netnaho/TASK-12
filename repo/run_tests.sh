@@ -81,7 +81,17 @@ if [[ ! -f "$PROD_COMPOSE_FILE" ]]; then
 fi
 
 TEST_COMPOSE_ARGS=(-f "$TEST_COMPOSE_FILE" -p "$PROJECT_NAME")
-PROD_COMPOSE_ARGS=(-f "$PROD_COMPOSE_FILE")
+# Force the "prod" compose project to the stable name "leaseops" so its
+# network (leaseops_leaseops-network) matches the external reference in
+# docker-compose.test.yml regardless of the cwd/repo directory name.
+PROD_COMPOSE_ARGS=(-f "$PROD_COMPOSE_FILE" -p leaseops)
+
+# e2e must bring up the "prod" stack with known-good env values, bypassing
+# any stale host `.env` that contains CHANGE_ME placeholders (which fail
+# backend env validation on startup).
+if [[ -f "$REPO_ROOT/.env.e2e" ]]; then
+  PROD_COMPOSE_ARGS=(--env-file "$REPO_ROOT/.env.e2e" "${PROD_COMPOSE_ARGS[@]}")
+fi
 
 TARGET="${1:-all}"
 

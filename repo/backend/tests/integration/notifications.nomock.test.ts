@@ -87,9 +87,10 @@ d('Notifications module (no-mock — extended)', () => {
     assertError(res, 403);
   });
 
-  it('GET /notifications/templates returns paginated for admin', async () => {
+  it('GET /notifications/templates returns an array of templates (admin)', async () => {
     const res = await admin.get('/api/v1/notifications/templates');
-    assertPaginated(res);
+    assertSuccess(res);
+    expect(Array.isArray(res.body.data)).toBe(true);
   });
 
   it('POST /notifications/templates validates body (422)', async () => {

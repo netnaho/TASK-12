@@ -10,6 +10,11 @@ export default defineConfig({
     pool: 'forks',
     coverage: {
       provider: 'v8',
+      // The `coverage/` directory is a bind-mount in Docker test runs, so
+      // vitest cannot rmdir it between runs (EBUSY). Tell v8 to overwrite
+      // files in-place instead.
+      clean: false,
+      cleanOnRerun: false,
       reporter: ['text', 'text-summary', 'lcov', 'json-summary'],
       include: ['src/**/*.ts'],
       exclude: [

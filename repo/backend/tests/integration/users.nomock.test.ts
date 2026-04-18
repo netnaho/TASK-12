@@ -162,13 +162,12 @@ d('Users module (no-mock — extended)', () => {
   it('PUT /users/me/preferences persists and is read back', async () => {
     const put = await agentAgent
       .put('/api/v1/users/me/preferences')
-      .send({ deliveryMethod: 'EMAIL' });
+      .send({ deliveryMode: 'ALSO_PACKAGE' });
     assertSuccess(put);
+    expect(put.body.data.deliveryMode).toBe('ALSO_PACKAGE');
 
     const get = await agentAgent.get('/api/v1/users/me/preferences');
     assertSuccess(get);
-    // The API may flatten or nest the shape — validate via stringified content.
-    const json = JSON.stringify(get.body.data);
-    expect(json).toContain('EMAIL');
+    expect(get.body.data.deliveryMode).toBe('ALSO_PACKAGE');
   });
 });

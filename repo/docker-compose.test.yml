@@ -80,12 +80,18 @@ services:
       AES_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       LOG_LEVEL: silent
       INTEGRATION_NO_MOCK: "1"
+      # Tests make many rapid login attempts; disable the per-IP rate limit.
+      RATE_LIMIT_MAX: "10000"
+      AUTH_RATE_LIMIT_MAX: "10000"
+      RATE_LIMIT_WINDOW_MS: "900000"
     volumes:
       - ./backend/coverage:/app/coverage
     networks:
       - leaseops-test-network
     working_dir: /app
-    # Migrate + seed the test DB, then run the no-mock integration suite.
+    # Reset + seed the test DB, then run the no-mock integration suite.
+    # Reset ensures repeated runs of the same suite start from a clean slate
+    # so unique-constraint rows created in a previous run can't leak.
     command:
       - "sh"
       - "-lc"
@@ -93,10 +99,8 @@ services:
         set -e
         echo "==> Waiting for DB..."
         until nc -z test-db 3306 2>/dev/null || node -e "require('net').createConnection({host:'test-db',port:3306}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"; do sleep 1; done
-        echo "==> Applying prisma migrations"
-        npx prisma migrate deploy
-        echo "==> Seeding baseline data"
-        npx tsx prisma/seed.ts || true
+        echo "==> Resetting DB (drop + migrate + seed)"
+        npx prisma migrate reset --force --skip-generate
         echo "==> Running no-mock integration suite"
         npx vitest run --dir tests/integration --reporter=default
 
@@ -116,6 +120,10 @@ services:
       AES_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       LOG_LEVEL: silent
       INTEGRATION_NO_MOCK: "1"
+      # Tests make many rapid login attempts; disable the per-IP rate limit.
+      RATE_LIMIT_MAX: "10000"
+      AUTH_RATE_LIMIT_MAX: "10000"
+      RATE_LIMIT_WINDOW_MS: "900000"
     volumes:
       - ./backend/coverage:/app/coverage
     networks:
@@ -126,8 +134,12 @@ services:
       - "-lc"
       - |
         set -e
-        echo "==> Applying prisma migrations (if needed)"
-        npx prisma migrate deploy || true
+        echo "==> Resetting DB (drop + migrate + seed) for a pristine coverage run"
+        # `migrate reset --force --skip-generate` drops schema, re-applies
+        # migrations, and runs the seed script — a clean slate, which is
+        # what we need when `all` runs coverage after integration has left
+        # unique-constraint rows in the test DB.
+        npx prisma migrate reset --force --skip-generate
         echo "==> Running combined coverage"
         npx vitest run --coverage
 

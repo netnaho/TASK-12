@@ -85,7 +85,7 @@ export const downloadPackage = asyncHandler(async (req: Request, res: Response) 
 
 export const addToBlacklist = asyncHandler(async (req: Request, res: Response) => {
   const data = req.body as AddBlacklistBody;
-  const entry = await messagingService.addToBlacklist(data);
+  const entry = await messagingService.addToBlacklist(data, req.userId);
   res.status(201).json(created(entry));
 });
 

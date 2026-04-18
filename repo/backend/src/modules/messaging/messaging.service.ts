@@ -262,7 +262,7 @@ export class MessagingService {
 
   // ─── BLACKLIST ──────────────────────────────────────────────────
 
-  async addToBlacklist(data: AddBlacklistBody) {
+  async addToBlacklist(data: AddBlacklistBody, createdBy?: string) {
     const existing = await prisma.messageBlacklist.findUnique({
       where: {
         address_channel: {
@@ -276,13 +276,23 @@ export class MessagingService {
       throw new ConflictError('Address is already blacklisted for this channel');
     }
 
+    // The underlying `message_blacklist.created_by` column is NOT NULL at
+    // the DB layer even though the Prisma schema marks it optional. When the
+    // caller provides an authenticated user id (normal HTTP flow), persist
+    // it as the audit trail. If omitted (legacy direct-service callers),
+    // leave it unset and let prisma/mysql surface the NOT NULL constraint
+    // — preserving the pre-existing contract for those callers.
+    const createData: any = {
+      address: data.address,
+      channel: data.channel as any,
+      reason: data.reason ?? null,
+      userId: data.userId ?? null,
+    };
+    const auditedBy = createdBy ?? data.userId;
+    if (auditedBy) createData.createdBy = auditedBy;
+
     const entry = await prisma.messageBlacklist.create({
-      data: {
-        address: data.address,
-        channel: data.channel as any,
-        reason: data.reason ?? null,
-        userId: data.userId ?? null,
-      },
+      data: createData,
     });
 
     logger.info({ address: data.address, channel: data.channel }, 'Address added to blacklist');

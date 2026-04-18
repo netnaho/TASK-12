@@ -28,7 +28,8 @@ d('Audit module (no-mock)', () => {
   });
 
   it('GET /audit/:id returns 404 for unknown id', async () => {
-    const res = await admin.get('/api/v1/audit/unknown-audit-zzz');
+    // Audit log IDs are BigInt, not UUIDs, so use a numeric id.
+    const res = await admin.get('/api/v1/audit/9999999999');
     assertError(res, 404);
   });
 });

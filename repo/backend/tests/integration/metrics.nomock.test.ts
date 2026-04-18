@@ -28,9 +28,9 @@ d('Metrics module (no-mock — extended)', () => {
     assertError(res, 401);
   });
 
-  it('GET /metrics/definitions returns a paginated list', async () => {
+  it('GET /metrics/definitions returns an array of definitions', async () => {
     const res = await admin.get('/api/v1/metrics/definitions');
-    assertPaginated(res);
+    assertSuccess(res);
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 

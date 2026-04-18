@@ -81,7 +81,7 @@ describe('Side effects: service calls receive the right arguments', () => {
     expect(res.body.data.rentPrice).toBe(1250);
   });
 
-  it('POST /api/v1/metrics/recalculate forwards propertyIds', async () => {
+  it('POST /api/v1/metrics/recalculate forwards propertyIds + userId', async () => {
     mockMetricsService.triggerRecalculation.mockResolvedValue({
       jobId: 'job-1', status: 'QUEUED',
     });
@@ -91,9 +91,11 @@ describe('Side effects: service calls receive the right arguments', () => {
       .send({ propertyIds: ['00000000-0000-0000-0000-000000000001'] });
     expect(res.status).toBeGreaterThanOrEqual(200);
     expect(res.status).toBeLessThan(300);
-    expect(mockMetricsService.triggerRecalculation).toHaveBeenCalled();
-    const args = mockMetricsService.triggerRecalculation.mock.calls[0][0];
-    expect(args).toHaveProperty('propertyIds');
+    // Controller signature: triggerRecalculation(propertyIds, userId)
+    expect(mockMetricsService.triggerRecalculation).toHaveBeenCalledWith(
+      ['00000000-0000-0000-0000-000000000001'],
+      expect.anything(),
+    );
   });
 });
 

@@ -65,6 +65,12 @@ services:
       PORT:               ${PORT:-3000}
       CORS_ORIGIN:        ${CORS_ORIGIN:-http://localhost:8080}
       LOG_LEVEL:          ${LOG_LEVEL:-info}
+      # Disable Prisma's outbound update-check ping during `migrate deploy`.
+      # Without this, restricted/offline networks surface as an ECONNRESET
+      # that takes out the migration step.
+      CHECKPOINT_DISABLE:       ${CHECKPOINT_DISABLE:-1}
+      PRISMA_HIDE_UPDATE_MESSAGE:  ${PRISMA_HIDE_UPDATE_MESSAGE:-1}
+      PRISMA_TELEMETRY_DISABLED:   ${PRISMA_TELEMETRY_DISABLED:-1}
     ports:
       - "3000:3000"
     depends_on:

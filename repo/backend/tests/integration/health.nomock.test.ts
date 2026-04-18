@@ -17,11 +17,13 @@ d('GET /api/health/live (no-mock)', () => {
 });
 
 d('GET /api/health/ready (no-mock)', () => {
-  it('returns 200 with readiness payload', async () => {
+  it('returns 200 with { ready, uptime } readiness payload', async () => {
     const res = await createAgent().get('/api/health/ready');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data).toHaveProperty('status');
+    expect(res.body.data).toHaveProperty('ready');
+    expect(res.body.data.ready).toBe(true);
+    expect(typeof res.body.data.uptime).toBe('number');
   });
 });
 
